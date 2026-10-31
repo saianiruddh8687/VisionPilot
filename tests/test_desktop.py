@@ -1,11 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from visionpilot.desktop import (
-    DesktopControlConfig,
-    DesktopControlEngine,
-    ScreenMapper,
-)
+from visionpilot.desktop import DesktopControlEngine, ScreenMapper
 from visionpilot.gestures import Gesture, GestureEvent, GestureUpdate
 from visionpilot.tracking import Point2D
 
@@ -51,7 +47,6 @@ def gesture(
     duration=0.0,
     scroll=0.0,
     detected=True,
-    ready=True,
 ):
     candidate = active if candidate is None else candidate
     return GestureUpdate(
@@ -61,16 +56,6 @@ def gesture(
         previous_gesture=previous,
         hand_detected=detected,
         stable_frames=3,
-        pinch_duration=duration,
-        scroll_delta_y=scroll,
-        timestamp=1.0,
-    ) if ready else GestureUpdate(
-        gesture=active,
-        candidate=candidate,
-        event=event,
-        previous_gesture=previous,
-        hand_detected=detected,
-        stable_frames=1,
         pinch_duration=duration,
         scroll_delta_y=scroll,
         timestamp=1.0,
@@ -139,7 +124,7 @@ class DesktopControlTests(unittest.TestCase):
             gesture(Gesture.PINCH, duration=0.5),
         )
         self.assertEqual(self.mouse.presses, 1)
-        self.assertEqual(self.mouse.moves[-1], (600, 600))
+        self.assertEqual(self.mouse.moves[-1], self.engine.mapper.map(Point2D(0.6, 0.6)))
         self.engine.update(
             tracking(0.7, 0.7),
             gesture(
@@ -149,6 +134,7 @@ class DesktopControlTests(unittest.TestCase):
         )
         self.assertEqual(self.mouse.releases, 1)
         self.assertEqual(self.mouse.clicks, 0)
+        self.assertEqual(self.mouse.moves[-1], self.engine.mapper.map(Point2D(0.7, 0.7)))
 
     def test_open_palm_pauses_and_index_point_resumes(self):
         self.arm()
@@ -167,13 +153,11 @@ class DesktopControlTests(unittest.TestCase):
 
     def test_tracking_loss_disarms_and_releases_held_button(self):
         self.arm()
-        self.engine.update(
-            tracking(), gesture(Gesture.PINCH, duration=0.6)
-        )
+        self.engine.update(tracking(), gesture(Gesture.PINCH, duration=0.6))
         self.assertEqual(self.mouse.presses, 1)
         self.engine.update(
             tracking(ready=False),
-            gesture(Gesture.NONE, detected=False, ready=False),
+            gesture(Gesture.NONE, detected=False),
         )
         self.assertFalse(self.engine.enabled)
         self.assertEqual(self.mouse.releases, 1)
@@ -197,6 +181,7 @@ class DesktopControlTests(unittest.TestCase):
         class BrokenMouse(FakeMouse):
             def move_to(self, x, y):
                 raise RuntimeError("test backend failure")
+
         engine = DesktopControlEngine(BrokenMouse())
         engine.toggle_enabled()
         engine.update(tracking(), gesture())
