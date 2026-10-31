@@ -28,7 +28,6 @@ def hand_pose(kind: str, *, index_y=0.30, middle_y=0.25):
             if name in extended
             else Landmark(x + 0.06, pip_y + 0.08, 0.0)
         )
-
     if kind == "open":
         points[2] = Landmark(0.34, 0.60, 0.0)
         points[3] = Landmark(0.27, 0.52, 0.0)
@@ -70,6 +69,14 @@ class GestureClassifierTests(unittest.TestCase):
 
     def test_pinch(self):
         result = self.stable(GestureClassifier(), hand_pose("pinch"))
+        self.assertEqual(result.gesture, Gesture.PINCH)
+
+    def test_pinch_with_partially_bent_index_finger(self):
+        observation = hand_pose("pinch")
+        points = list(observation.landmarks)
+        points[8] = Landmark(0.48, 0.44, 0.0)
+        points[4] = Landmark(0.485, 0.44, 0.0)
+        result = self.stable(GestureClassifier(), HandObservation(tuple(points)))
         self.assertEqual(result.gesture, Gesture.PINCH)
 
     def test_debounce_prevents_single_frame_switch(self):

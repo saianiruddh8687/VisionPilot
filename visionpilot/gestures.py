@@ -124,8 +124,9 @@ class GestureClassifier:
         palm_width = self._distance(points[5], points[17])
         if palm_width <= 1e-6:
             return Gesture.NONE, 1.0
+        index_angle = self._angle(points[5], points[6], points[8])
         extended = {
-            "index": self._angle(points[5], points[6], points[8]) >= self.config.finger_extension_angle,
+            "index": index_angle >= self.config.finger_extension_angle,
             "middle": self._angle(points[9], points[10], points[12]) >= self.config.finger_extension_angle,
             "ring": self._angle(points[13], points[14], points[16]) >= self.config.finger_extension_angle,
             "pinky": self._angle(points[17], points[18], points[20]) >= self.config.finger_extension_angle,
@@ -137,19 +138,18 @@ class GestureClassifier:
             and thumb_abduction >= self.config.thumb_abduction_ratio
         )
 
-        # A folded fist can place thumb and index tips close together. Give a
-        # fully folded pose priority so it cannot become an accidental pinch.
-        if not any(extended.values()) and not thumb_extended:
-            return Gesture.FIST, 1.0
-
         pinch_ratio = self._distance(points[4], points[8]) / palm_width
         pinch_limit = (
             self.config.pinch_release_ratio
             if self._gesture is Gesture.PINCH or self._candidate is Gesture.PINCH
             else self.config.pinch_enter_ratio
         )
-        if pinch_ratio <= pinch_limit:
+        # A pinch can bend the index finger, but a tightly curled index plus
+        # all other folded fingers is more consistent with a closed fist.
+        if pinch_ratio <= pinch_limit and index_angle >= 105.0:
             return Gesture.PINCH, pinch_ratio
+        if not any(extended.values()) and not thumb_extended:
+            return Gesture.FIST, 1.0
         if all(extended.values()) and thumb_extended:
             return Gesture.OPEN_PALM, min(thumb_abduction, thumb_angle / 180.0)
         if extended["index"] and extended["middle"] and not extended["ring"] and not extended["pinky"]:
