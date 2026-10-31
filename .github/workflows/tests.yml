@@ -22,5 +22,7 @@ jobs:
           python -m pip install -r requirements.txt
       - name: Compile source and tests
         run: python -m compileall -q visionpilot tests
+      - name: Import desktop dashboard
+        run: python -c "from visionpilot.dashboard import DashboardWindow; from visionpilot.dashboard_runtime import DashboardWorker"
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
