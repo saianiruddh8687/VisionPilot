@@ -56,6 +56,9 @@ class CalibrationFitTests(unittest.TestCase):
         profile = fit_calibration(self.identity_pairs(), 1920, 1080)
         restored = CalibrationProfile.from_dict(profile.to_dict())
         self.assertEqual(restored, profile)
+        self.assertEqual(restored.camera_index, 0)
+        self.assertEqual(restored.camera_width, 1280)
+        self.assertTrue(restored.mirror_preview)
 
     def test_save_and_load_profile(self):
         profile = fit_calibration(self.identity_pairs(), 1920, 1080)
@@ -72,8 +75,11 @@ class CalibrationSessionTests(unittest.TestCase):
         with self.assertRaises(CalibrationError):
             session.capture()
 
-    def test_captures_all_five_targets_and_builds_profile(self):
-        session = CalibrationSession(1920, 1080, min_samples=5, max_samples=8)
+    def test_captures_all_five_targets_and_binds_camera_metadata(self):
+        session = CalibrationSession(
+            1920, 1080, min_samples=5, max_samples=8,
+            camera_index=1, camera_width=640, camera_height=480, mirror_preview=False,
+        )
         for _label, target in CALIBRATION_TARGETS:
             for _ in range(5):
                 session.observe(target)
@@ -83,6 +89,9 @@ class CalibrationSessionTests(unittest.TestCase):
         self.assertTrue(session.complete)
         self.assertEqual(session.progress, 5)
         self.assertIsNotNone(session.profile)
+        self.assertEqual(session.profile.camera_index, 1)
+        self.assertEqual((session.profile.camera_width, session.profile.camera_height), (640, 480))
+        self.assertFalse(session.profile.mirror_preview)
         mapped = session.profile.transform(Point2D(0.4, 0.6))
         self.assertAlmostEqual(mapped.x, 0.4, places=5)
         self.assertAlmostEqual(mapped.y, 0.6, places=5)
