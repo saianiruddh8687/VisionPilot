@@ -5,5 +5,5 @@ if not exist ".venv\Scripts\python.exe" (
     pause
     exit /b 1
 )
-.venv\Scripts\python.exe -m visionpilot.app %*
+.venv\Scripts\python.exe -m visionpilot %*
 if errorlevel 1 pause

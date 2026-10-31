@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "visionpilot"
-version = "0.5.0"
-description = "Local webcam hand perception, tracking, gesture recognition, calibrated desktop control"
+version = "0.6.0"
+description = "Local hand tracking, gesture recognition, calibrated desktop control, and a PySide6 dashboard"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
@@ -13,7 +13,12 @@ dependencies = [
   "opencv-python>=4.10,<5",
   "numpy>=1.26,<2",
   "pynput>=1.7.7,<2",
+  "PySide6>=6.7,<7",
 ]
+
+[project.scripts]
+visionpilot = "visionpilot.dashboard:main"
+visionpilot-cli = "visionpilot.app:run"
 
 [tool.setuptools.packages.find]
 include = ["visionpilot*"]

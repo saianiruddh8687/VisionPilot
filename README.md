@@ -1,67 +1,93 @@
-# VisionPilot — Phase 5: Calibration and Control Profiles
+# VisionPilot — Phase 6: PySide6 Desktop Dashboard
 
-Phase 5 adds guided five-point camera-to-screen calibration and persistent per-user calibration profiles. The controller cannot be armed until a valid calibration is loaded or created.
+VisionPilot is a Windows-first, local webcam application that turns a small set of hand gestures into desktop cursor, click, drag, and scroll actions. Phase 6 adds a proper PySide6 dashboard around the existing perception, tracking, gesture, calibration, and desktop-control pipeline.
 
-## New in Phase 5
+## What's in the dashboard
 
-- Guided top-left, top-right, bottom-right, bottom-left, and center calibration.
-- Stable-sample capture: at least 20 recent INDEX_POINT frames, with X/Y standard deviation no greater than 0.012.
-- Homography fit from camera coordinates to normalized screen coordinates, with rank and RMS-error validation.
-- Calibration persistence under the current user's application configuration directory.
-- Profile binding to display size, camera index, capture resolution, and mirror setting. Any mismatch requires recalibration.
-- Safe edge clamping after calibration.
-- Runtime CLI settings for drag threshold, scroll gain, and screen edge margin.
-- Calibration UI overlay and explicit arm/disarm gating.
+- Live camera preview with hand landmarks and fingertip marker.
+- Live tracking state, detected gesture, controller state, FPS, and camera status.
+- Guided five-point calibration with stable-sample progress and capture controls.
+- Camera selection (indices 0–4) and selfie-mirror setting.
+- Adjustable drag-start threshold, scroll gain, and safe screen edge margin.
+- Visible arm/disarm state and an always-available Emergency Stop button.
+- Global F12 emergency stop when the pynput keyboard listener is available.
 
-## Controls
+All camera capture, MediaPipe inference, calibration, and mouse actions execute on a worker thread. The Qt main thread only updates the interface and displays detached preview frames.
 
-| Key / gesture | Behavior |
-|---|---|
-| C | Start calibration while desktop control is disarmed |
-| INDEX_POINT | Position the fingertip; hold steady at the displayed camera-preview target |
-| Space | Capture the current stable calibration target |
-| X | Cancel calibration |
-| E | Arm/disarm; arming is blocked until calibration is valid |
-| F12 | Global emergency stop |
-| Q / Esc | Quit and release held mouse button |
-| M | Toggle selfie mirroring outside calibration; changing it invalidates the current profile |
+## Setup (Windows PowerShell)
 
-After calibration, E arms mouse control. Index-point moves the cursor, quick pinch clicks, sustained pinch drags, two-finger movement scrolls, and open palm pauses. All Phase 4 fail-safe behaviors remain in place.
-
-## Setup and run (Windows PowerShell)
+Use Python 3.11 x64:
 
     py -3.11 -m venv .venv
     .\.venv\Scripts\Activate.ps1
     python -m pip install --upgrade pip
     python -m pip install -r requirements.txt
     python scripts/download_model.py
+
+Launch the dashboard:
+
+    python -m visionpilot
+
+You can also run the bundled launcher:
+
+    .\run_visionpilot.bat
+
+The dashboard accepts optional startup arguments:
+
+    python -m visionpilot --camera 1
+    python -m visionpilot --model .\models\hand_landmarker.task
+    python -m visionpilot --calibration-file .\my-calibration.json
+
+## Calibration and control
+
+1. Start VisionPilot. It opens with desktop control disarmed.
+2. Select the intended camera and mirror mode.
+3. Select **Start Calibration**. Keep the controller disarmed.
+4. At each of the five displayed targets, hold INDEX POINT steady until the stable-sample indicator is ready, then select **Capture Target**.
+5. After all five targets are captured and saved, the dashboard enables **Arm Control**.
+6. Use **Disarm Control** or **Emergency Stop** at any time.
+
+Gestures while armed:
+
+| Gesture | Action |
+|---|---|
+| INDEX POINT | Move cursor |
+| Quick PINCH | Left click |
+| Sustained PINCH | Hold left mouse button to drag |
+| TWO FINGER | Scroll |
+| OPEN PALM | Pause |
+| Tracking loss | Automatically disarm and release held mouse button |
+
+The calibration profile is stored outside the repository in the user's application configuration directory (the Windows APPDATA folder under VisionPilot/calibration.json). It is bound to the screen dimensions, camera index, requested capture resolution, and mirror setting. A mismatch requires recalibration.
+
+## Keyboard and emergency controls
+
+- **F12** — global emergency stop, when the keyboard listener is available.
+- The red **Emergency Stop** button in the dashboard is always available.
+- Closing the dashboard stops the worker, closes the camera and detector, disarms control, and releases any held mouse button.
+
+## Existing command-line preview
+
+The original OpenCV window remains available:
+
     python -m visionpilot.app
-
-Preview only, with no OS mouse controller:
-
     python -m visionpilot.app --no-desktop-control
 
-Optional control tuning:
-
-    python -m visionpilot.app --drag-threshold 0.50 --scroll-gain 40 --edge-margin 0.03
-
-Optional calibration location:
-
-    python -m visionpilot.app --calibration-file .\my-calibration.json
-
-By default, the profile is saved outside the repository in the Windows application data folder under VisionPilot/calibration.json. It contains only the fitted transform and hardware/display metadata, not webcam frames or images.
+The PySide6 dashboard is the default application entry point (python -m visionpilot).
 
 ## Tests
 
+    python -m compileall -q visionpilot tests
     python -m unittest discover -s tests -v
 
-Calibration tests use synthetic points and a temporary profile file. They do not initialize a webcam or move the system cursor. A real guided calibration and cursor test must be performed on the target Windows laptop.
+The safety-gate and existing unit tests do not open a webcam or move the OS cursor. CI compiles the application and runs the unit suite on Windows. A real webcam, calibration, and cursor session must still be tested on the target Windows machine.
 
 ## Safety and limitations
 
-- Control remains disarmed by default.
-- The E key cannot arm the controller before calibration is complete.
-- Calibration only runs while the controller is disarmed and never sends mouse actions.
-- Calibration must be repeated if primary display resolution, camera device, capture resolution, or mirror setting changes.
-- This version calibrates one primary display only; multi-monitor selection is future work.
-- All image processing remains local; frames are not saved or uploaded.
+- Desktop control is disarmed by default and cannot be armed without a matching calibration profile.
+- Calibration is available only while disarmed; it does not issue mouse actions.
+- Camera or mirror changes invalidate an incompatible calibration profile.
+- Tracking loss, controller errors, emergency stop, and application shutdown disarm control and attempt to release a held mouse button.
+- Preview and hand processing remain local; camera frames are not saved or uploaded.
+- Only the primary display is supported. Multi-monitor selection is future work.
+- Windows is the primary target; camera availability and OS mouse permissions depend on the host system.
