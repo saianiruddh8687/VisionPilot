@@ -1,31 +1,34 @@
-# VisionPilot — Phase 4: Desktop Control Engine
+# VisionPilot — Phase 5: Calibration and Control Profiles
 
-VisionPilot is a Windows-first, local webcam application for hands-free mouse control. Phase 4 connects hand tracking and gesture recognition to the primary desktop mouse with explicit arming and fail-safe release behavior.
+Phase 5 adds guided five-point camera-to-screen calibration and persistent per-user calibration profiles. The controller cannot be armed until a valid calibration is loaded or created.
+
+## New in Phase 5
+
+- Guided top-left, top-right, bottom-right, bottom-left, and center calibration.
+- Stable-sample capture: at least 20 recent INDEX_POINT frames, with X/Y standard deviation no greater than 0.012.
+- Homography fit from camera coordinates to normalized screen coordinates, with rank and RMS-error validation.
+- Calibration persistence under the current user's application configuration directory.
+- Profile binding to display size, camera index, capture resolution, and mirror setting. Any mismatch requires recalibration.
+- Safe edge clamping after calibration.
+- Runtime CLI settings for drag threshold, scroll gain, and screen edge margin.
+- Calibration UI overlay and explicit arm/disarm gating.
 
 ## Controls
 
-| Input | Desktop behavior |
+| Key / gesture | Behavior |
 |---|---|
-| Press E in the preview | Arm / disarm mouse control |
-| Index-point gesture | Move the pointer using the smoothed index fingertip |
-| Quick pinch and release | Left click |
-| Hold pinch for 0.45 s | Hold left button and drag; release pinch to drop |
-| Two-finger gesture | Scroll vertically |
-| Open palm | Pause mouse actions until another supported gesture is detected |
-| F12 (global hotkey) | Emergency stop; disarms and releases a held left button |
-| Tracking loss | Automatically disarm and release any held button |
-| Q or Esc in preview | Quit and release any held button |
+| C | Start calibration while desktop control is disarmed |
+| INDEX_POINT | Position the fingertip; hold steady at the displayed camera-preview target |
+| Space | Capture the current stable calibration target |
+| X | Cancel calibration |
+| E | Arm/disarm; arming is blocked until calibration is valid |
+| F12 | Global emergency stop |
+| Q / Esc | Quit and release held mouse button |
+| M | Toggle selfie mirroring outside calibration; changing it invalidates the current profile |
 
-**Control is disarmed by default.** Press E only after the webcam preview is stable and your hand is correctly detected. Press E again to disarm. F12 is a global emergency stop when the pynput keyboard listener is available.
+After calibration, E arms mouse control. Index-point moves the cursor, quick pinch clicks, sustained pinch drags, two-finger movement scrolls, and open palm pauses. All Phase 4 fail-safe behaviors remain in place.
 
-## Requirements
-
-- Windows 10/11, 64-bit.
-- Python 3.11 (64-bit recommended).
-- Built-in webcam and Windows camera permission.
-- A single primary monitor for this initial desktop mapping.
-
-## Install and run
+## Setup and run (Windows PowerShell)
 
     py -3.11 -m venv .venv
     .\.venv\Scripts\Activate.ps1
@@ -34,39 +37,31 @@ VisionPilot is a Windows-first, local webcam application for hands-free mouse co
     python scripts/download_model.py
     python -m visionpilot.app
 
-Run visual tracking only, without initializing OS mouse control:
+Preview only, with no OS mouse controller:
 
     python -m visionpilot.app --no-desktop-control
 
-## Safety behavior
+Optional control tuning:
 
-- No mouse action is sent before the user presses E.
-- Mouse control only acts on a current, valid tracking frame and a debounced supported gesture.
-- A missing hand immediately disarms the controller; it never uses a stale fingertip coordinate.
-- Open palm pauses actions; a supported gesture resumes them.
-- A short pinch produces one click on release. A pinch held for the configured threshold becomes a drag.
-- F12 requests an immediate emergency stop. E is required to re-arm afterwards.
-- Any mouse-backend exception fails closed and disarms control.
-- Shutdown releases the left button if it was held.
-- The pointer mapping leaves a small inset from screen edges to avoid accidental corner-triggered OS behaviors.
-- Camera frames stay local and are not recorded or uploaded.
+    python -m visionpilot.app --drag-threshold 0.50 --scroll-gain 40 --edge-margin 0.03
 
-## Automated tests
+Optional calibration location:
+
+    python -m visionpilot.app --calibration-file .\my-calibration.json
+
+By default, the profile is saved outside the repository in the Windows application data folder under VisionPilot/calibration.json. It contains only the fitted transform and hardware/display metadata, not webcam frames or images.
+
+## Tests
 
     python -m unittest discover -s tests -v
 
-The desktop engine tests use a fake mouse backend. They do not move the real cursor and do not require a webcam, model download, or global keyboard hooks. A live manual test is still required on the target Windows laptop.
+Calibration tests use synthetic points and a temporary profile file. They do not initialize a webcam or move the system cursor. A real guided calibration and cursor test must be performed on the target Windows laptop.
 
-## Architecture
+## Safety and limitations
 
-    Webcam -> MediaPipe -> HandTracker -> GestureClassifier
-                                      -> DesktopControlEngine (disarmed by default)
-                                      -> ScreenMapper -> PynputMouseBackend
-    Global F12 -> EmergencyStopListener -> release + disarm
-
-## Known initial limitations
-
-- Single primary display only; multi-monitor mapping and camera-specific calibration are future refinements.
-- Gesture thresholds may need tuning for the user's camera angle, lighting, and hand posture.
-- Global F12 hotkey availability depends on Windows permissions and other applications; the preview E key and Q/Esc exit remain available.
-- Phase 4 does not issue keyboard shortcuts or interact with application-specific UI.
+- Control remains disarmed by default.
+- The E key cannot arm the controller before calibration is complete.
+- Calibration only runs while the controller is disarmed and never sends mouse actions.
+- Calibration must be repeated if primary display resolution, camera device, capture resolution, or mirror setting changes.
+- This version calibrates one primary display only; multi-monitor selection is future work.
+- All image processing remains local; frames are not saved or uploaded.

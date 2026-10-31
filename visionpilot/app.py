@@ -1,4 +1,4 @@
-"""VisionPilot Phase 4: gesture-driven Windows desktop mouse control."""
+"""VisionPilot Phase 5: calibrated desktop control with profile persistence."""
 from __future__ import annotations
 
 import argparse
@@ -7,8 +7,21 @@ import time
 from pathlib import Path
 
 from .camera import CameraError, CameraStream
+from .calibration import (
+    CalibrationError,
+    CalibrationSession,
+    CalibratedScreenMapper,
+    default_calibration_path,
+    load_profile,
+    save_profile,
+)
 from .config import DEFAULT_MODEL_PATH, VisionPilotConfig
-from .desktop import DesktopControlEngine, EmergencyStopListener, PynputMouseBackend
+from .desktop import (
+    DesktopControlConfig,
+    DesktopControlEngine,
+    EmergencyStopListener,
+    PynputMouseBackend,
+)
 from .detector import HandLandmarkDetector
 from .fps import FPSCounter
 from .gestures import Gesture, GestureClassifier
@@ -18,7 +31,7 @@ from .tracking import HandTracker, TrackingPhase
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="VisionPilot Phase 4 — hands-free desktop mouse control"
+        description="VisionPilot Phase 5 — calibrated hands-free desktop control"
     )
     parser.add_argument("--camera", type=int, default=0, help="webcam index (default: 0)")
     parser.add_argument("--width", type=int, default=1280, help="capture width")
@@ -26,10 +39,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL_PATH, help="MediaPipe .task model")
     parser.add_argument("--no-mirror", action="store_true", help="disable selfie mirroring")
     parser.add_argument(
-        "--no-desktop-control",
-        action="store_true",
-        help="run visual tracking only; do not initialize the OS mouse controller",
+        "--no-desktop-control", action="store_true",
+        help="run visual tracking only; do not initialize OS mouse control",
     )
+    parser.add_argument(
+        "--calibration-file", type=Path, default=default_calibration_path(),
+        help="per-user calibration profile path",
+    )
+    parser.add_argument("--drag-threshold", type=float, default=0.45, help="pinch hold time before drag, seconds")
+    parser.add_argument("--scroll-gain", type=float, default=35.0, help="two-finger scroll sensitivity")
+    parser.add_argument("--edge-margin", type=float, default=0.025, help="safe screen edge margin, 0..0.25")
     return parser
 
 
@@ -52,10 +71,49 @@ def run() -> int:
         return 2
 
     desktop = None
+    backend = None
     emergency_listener = None
-    if not args.no_desktop_control:
+    active_profile = None
+    calibration_session = None
+    calibration_status = "CALIBRATION REQUIRED — press C while disarmed"
+    if args.no_desktop_control:
+        calibration_status = "PREVIEW ONLY"
+    else:
         try:
-            desktop = DesktopControlEngine(PynputMouseBackend())
+            backend = PynputMouseBackend()
+            desktop_config = DesktopControlConfig(
+                drag_start_seconds=args.drag_threshold,
+                scroll_gain=args.scroll_gain,
+                edge_margin=args.edge_margin,
+            )
+            desktop = DesktopControlEngine(backend, desktop_config)
+            try:
+                active_profile = load_profile(args.calibration_file)
+                if active_profile is not None:
+                    expected_camera = (args.camera, args.width, args.height, config.mirror_preview)
+                    saved_camera = (
+                        active_profile.camera_index,
+                        active_profile.camera_width,
+                        active_profile.camera_height,
+                        active_profile.mirror_preview,
+                    )
+                    if saved_camera != expected_camera:
+                        raise CalibrationError(
+                            "profile camera index, capture resolution, or mirror setting differs; recalibrate"
+                        )
+                    desktop.mapper = CalibratedScreenMapper(
+                        *backend.screen_size,
+                        active_profile,
+                        edge_margin=desktop_config.edge_margin,
+                    )
+                    calibration_status = f"CALIBRATED — RMS {active_profile.rms_error:.4f}"
+                else:
+                    calibration_status = "NOT CALIBRATED — press C to start"
+            except CalibrationError as exc:
+                active_profile = None
+                calibration_status = f"RECALIBRATION REQUIRED — {exc}"
+                print(f"[VisionPilot] Calibration profile unavailable: {exc}", file=sys.stderr)
+
             emergency_listener = EmergencyStopListener(desktop)
             if emergency_listener.start():
                 print("[VisionPilot] Global F12 emergency stop is active.")
@@ -69,10 +127,9 @@ def run() -> int:
     tracker = HandTracker()
     gesture_classifier = GestureClassifier()
     frame_count = 0
-    print("[VisionPilot] Starting Phase 4 desktop-control preview...")
-    print("[VisionPilot] Press E in the preview to arm/disarm; F12 is the global emergency stop.")
-    print("[VisionPilot] Control starts DISARMED. INDEX POINT moves; pinch clicks/drags; two fingers scroll.")
-    print("[VisionPilot] Q/ESC quits. OPEN PALM pauses. Tracking loss auto-disarms.")
+    print("[VisionPilot] Phase 5 calibrated desktop control.")
+    print("[VisionPilot] C: calibrate (while disarmed) | SPACE: capture stable target | X: cancel")
+    print("[VisionPilot] E: arm/disarm (requires calibration) | F12: emergency stop | Q/ESC: quit")
 
     try:
         with CameraStream(
@@ -93,7 +150,40 @@ def run() -> int:
                 tracking = tracker.update(observation, timestamp=frame_time)
                 gesture = gesture_classifier.update(observation, timestamp=frame_time)
 
-                control_status = "PREVIEW ONLY" if desktop is None else desktop.update(tracking, gesture)
+                if calibration_session is not None:
+                    sample = None
+                    if (
+                        tracking.action_ready
+                        and gesture.action_ready
+                        and gesture.gesture is Gesture.INDEX_POINT
+                        and tracking.index_tip is not None
+                    ):
+                        sample = tracking.index_tip
+                    calibration_session.observe(sample)
+                    target = calibration_session.current_target
+                    if target is not None:
+                        label, camera_target = target
+                        target_x = int(camera_target.x * (frame.shape[1] - 1))
+                        target_y = int(camera_target.y * (frame.shape[0] - 1))
+                        cv2.drawMarker(
+                            frame, (target_x, target_y), (0, 255, 255),
+                            cv2.MARKER_CROSS, 36, 2, cv2.LINE_AA,
+                        )
+                        calibration_status = (
+                            f"CALIBRATING {calibration_session.progress + 1}/"
+                            f"{calibration_session.total_targets}: {label} | "
+                            f"stable samples {calibration_session.sample_count}/"
+                            f"{calibration_session.min_samples}"
+                        )
+                    if calibration_session.can_capture:
+                        calibration_status += " | READY: press SPACE"
+                    else:
+                        calibration_status += " | hold INDEX POINT steady"
+                    control_status = calibration_status
+                elif desktop is None:
+                    control_status = "PREVIEW ONLY"
+                else:
+                    control_status = desktop.update(tracking, gesture)
 
                 if observation is not None:
                     draw_hand_observation(frame, observation)
@@ -118,50 +208,93 @@ def run() -> int:
                     tracking_status = "SEARCHING — show one hand to camera"
                     tracking_color = (60, 180, 255)
 
-                gesture_label = gesture.gesture.value
-                if gesture.gesture is Gesture.OPEN_PALM:
-                    gesture_label = "OPEN PALM — PAUSE"
-                elif gesture.gesture is Gesture.PINCH:
-                    gesture_label = f"PINCH — {gesture.pinch_duration:.2f}s"
-                elif gesture.gesture is Gesture.TWO_FINGER:
-                    gesture_label = f"TWO FINGER — SCROLL {gesture.scroll_delta_y:+.3f}"
-                gesture_status = f"GESTURE: {gesture_label} | EVENT: {gesture.event.value}"
+                gesture_status = f"GESTURE: {gesture.gesture.value} | EVENT: {gesture.event.value}"
                 gesture_color = (80, 220, 120) if gesture.action_ready else (180, 180, 180)
 
-                height = 126
-                cv2.rectangle(frame, (0, 0), (frame.shape[1], height), (25, 25, 25), -1)
-                cv2.putText(frame, "VISIONPILOT  |  PHASE 4", (18, 24), cv2.FONT_HERSHEY_SIMPLEX,
+                cv2.rectangle(frame, (0, 0), (frame.shape[1], 142), (25, 25, 25), -1)
+                cv2.putText(frame, "VISIONPILOT  |  PHASE 5", (18, 23), cv2.FONT_HERSHEY_SIMPLEX,
                             0.68, (245, 245, 245), 2, cv2.LINE_AA)
-                cv2.putText(frame, tracking_status, (18, 52), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.50, tracking_color, 1, cv2.LINE_AA)
-                cv2.putText(frame, gesture_status, (18, 78), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.46, gesture_color, 1, cv2.LINE_AA)
+                cv2.putText(frame, tracking_status, (18, 50), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.48, tracking_color, 1, cv2.LINE_AA)
+                cv2.putText(frame, gesture_status, (18, 73), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.45, gesture_color, 1, cv2.LINE_AA)
                 control_color = (70, 220, 120) if desktop is not None and desktop.enabled else (50, 170, 255)
-                cv2.putText(frame, f"DESKTOP: {control_status}", (18, 105), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.49, control_color, 1, cv2.LINE_AA)
-                cv2.putText(frame, f"{current_fps:.1f} FPS", (frame.shape[1] - 150, 26),
+                cv2.putText(frame, f"DESKTOP: {control_status}", (18, 98), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.43, control_color, 1, cv2.LINE_AA)
+                panel_calibration = "IN PROGRESS" if calibration_session is not None else calibration_status
+                cv2.putText(frame, f"CALIBRATION: {panel_calibration}", (18, 121),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.40, (200, 200, 200), 1, cv2.LINE_AA)
+                cv2.putText(frame, f"{current_fps:.1f} FPS", (frame.shape[1] - 150, 24),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.65, (245, 245, 245), 2, cv2.LINE_AA)
-                cv2.putText(frame, "E: arm/disarm | F12: emergency stop | Q: quit",
-                            (frame.shape[1] - 390, 55), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.40, (190, 190, 190), 1, cv2.LINE_AA)
+                cv2.putText(frame, "C: calibrate | SPACE: capture | X: cancel | E: arm | F12: stop | Q: quit",
+                            (frame.shape[1] - 570, 49), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.37, (190, 190, 190), 1, cv2.LINE_AA)
 
-                cv2.imshow("VisionPilot — Desktop Control", frame)
+                cv2.imshow("VisionPilot — Calibrated Desktop Control", frame)
                 key = cv2.waitKey(1) & 0xFF
                 if key in (ord("q"), 27):
                     break
-                if key == ord("e") and desktop is not None:
-                    desktop.toggle_enabled()
                 if key == ord("m"):
-                    config = VisionPilotConfig(
+                    if calibration_session is not None or (desktop is not None and desktop.enabled):
+                        calibration_status = "MIRROR CHANGE BLOCKED — disarm and finish calibration first"
+                    else:
+                        config = VisionPilotConfig(
+                            camera_index=config.camera_index,
+                            frame_width=config.frame_width,
+                            frame_height=config.frame_height,
+                            mirror_preview=not config.mirror_preview,
+                            detection_confidence=config.detection_confidence,
+                            hand_presence_confidence=config.hand_presence_confidence,
+                            tracking_confidence=config.tracking_confidence,
+                        )
+                        if active_profile is not None and active_profile.mirror_preview != config.mirror_preview:
+                            active_profile = None
+                            calibration_status = "MIRROR CHANGED — recalibration required before arming"
+                if key == ord("c") and desktop is not None and not desktop.enabled:
+                    calibration_session = CalibrationSession(
+                        *backend.screen_size,
                         camera_index=config.camera_index,
-                        frame_width=config.frame_width,
-                        frame_height=config.frame_height,
-                        mirror_preview=not config.mirror_preview,
-                        detection_confidence=config.detection_confidence,
-                        hand_presence_confidence=config.hand_presence_confidence,
-                        tracking_confidence=config.tracking_confidence,
+                        camera_width=config.frame_width,
+                        camera_height=config.frame_height,
+                        mirror_preview=config.mirror_preview,
                     )
-    except (CameraError, FileNotFoundError, RuntimeError, ValueError) as exc:
+                    calibration_status = "CALIBRATION STARTED — hold index point at each target"
+                elif key == ord("x") and calibration_session is not None:
+                    calibration_session.cancel()
+                    calibration_session = None
+                    calibration_status = "CALIBRATION CANCELLED"
+                elif key == 32 and calibration_session is not None:
+                    try:
+                        finished = calibration_session.capture()
+                        if finished and calibration_session.profile is not None:
+                            active_profile = calibration_session.profile
+                            save_profile(active_profile, args.calibration_file)
+                            desktop.mapper = CalibratedScreenMapper(
+                                *backend.screen_size,
+                                active_profile,
+                                edge_margin=desktop.config.edge_margin,
+                            )
+                            calibration_session = None
+                            calibration_status = (
+                                f"SAVED — RMS {active_profile.rms_error:.4f}; press E to arm"
+                            )
+                        else:
+                            calibration_status = (
+                                f"CAPTURED {calibration_session.progress}/"
+                                f"{calibration_session.total_targets} — move to next target"
+                            )
+                    except CalibrationError as exc:
+                        calibration_status = f"NOT READY — {exc}"
+                if key == ord("e") and desktop is not None:
+                    if calibration_session is not None:
+                        calibration_status = "CALIBRATION ACTIVE — finish with SPACE or cancel with X"
+                    elif desktop.enabled:
+                        desktop.toggle_enabled()
+                    elif active_profile is None:
+                        calibration_status = "CALIBRATION REQUIRED — press C before arming"
+                    else:
+                        desktop.toggle_enabled()
+    except (CameraError, FileNotFoundError, RuntimeError, ValueError, CalibrationError) as exc:
         print(f"[VisionPilot] ERROR: {exc}", file=sys.stderr)
         return 1
     finally:
