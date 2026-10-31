@@ -1,0 +1,4 @@
+# Python 3.11 x64 is the recommended Windows environment for this baseline.
+mediapipe==0.10.21
+opencv-python>=4.10,<5
+numpy>=1.26,<2
