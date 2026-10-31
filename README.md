@@ -8,7 +8,7 @@ Phase 5 adds guided five-point camera-to-screen calibration and persistent per-u
 - Stable-sample capture: at least 20 recent INDEX_POINT frames, with X/Y standard deviation no greater than 0.012.
 - Homography fit from camera coordinates to normalized screen coordinates, with rank and RMS-error validation.
 - Calibration persistence under the current user's application configuration directory.
-- Resolution validation: a profile from another screen size is rejected and requires recalibration.
+- Profile binding to display size, camera index, capture resolution, and mirror setting. Any mismatch requires recalibration.
 - Safe edge clamping after calibration.
 - Runtime CLI settings for drag threshold, scroll gain, and screen edge margin.
 - Calibration UI overlay and explicit arm/disarm gating.
@@ -24,7 +24,7 @@ Phase 5 adds guided five-point camera-to-screen calibration and persistent per-u
 | E | Arm/disarm; arming is blocked until calibration is valid |
 | F12 | Global emergency stop |
 | Q / Esc | Quit and release held mouse button |
-| M | Toggle selfie mirroring outside calibration |
+| M | Toggle selfie mirroring outside calibration; changing it invalidates the current profile |
 
 After calibration, E arms mouse control. Index-point moves the cursor, quick pinch clicks, sustained pinch drags, two-finger movement scrolls, and open palm pauses. All Phase 4 fail-safe behaviors remain in place.
 
@@ -49,7 +49,7 @@ Optional calibration location:
 
     python -m visionpilot.app --calibration-file .\my-calibration.json
 
-By default, the profile is saved outside the repository in the Windows application data folder under VisionPilot/calibration.json. It contains only the fitted transform and screen dimensions, not webcam frames or images.
+By default, the profile is saved outside the repository in the Windows application data folder under VisionPilot/calibration.json. It contains only the fitted transform and hardware/display metadata, not webcam frames or images.
 
 ## Tests
 
@@ -61,7 +61,7 @@ Calibration tests use synthetic points and a temporary profile file. They do not
 
 - Control remains disarmed by default.
 - The E key cannot arm the controller before calibration is complete.
-- Calibration runs while disarmed and never sends mouse actions.
-- Calibration must be repeated if primary display resolution changes.
+- Calibration only runs while the controller is disarmed and never sends mouse actions.
+- Calibration must be repeated if primary display resolution, camera device, capture resolution, or mirror setting changes.
 - This version calibrates one primary display only; multi-monitor selection is future work.
 - All image processing remains local; frames are not saved or uploaded.
