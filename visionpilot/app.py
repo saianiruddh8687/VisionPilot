@@ -1,4 +1,4 @@
-"""VisionPilot Phase 3: webcam, fingertip tracking, and gesture recognition."""
+"""VisionPilot Phase 4: gesture-driven Windows desktop mouse control."""
 from __future__ import annotations
 
 import argparse
@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .camera import CameraError, CameraStream
 from .config import DEFAULT_MODEL_PATH, VisionPilotConfig
+from .desktop import DesktopControlEngine, EmergencyStopListener, PynputMouseBackend
 from .detector import HandLandmarkDetector
 from .fps import FPSCounter
 from .gestures import Gesture, GestureClassifier
@@ -17,13 +18,18 @@ from .tracking import HandTracker, TrackingPhase
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="VisionPilot Phase 3 — local hand tracking and gesture recognition"
+        description="VisionPilot Phase 4 — hands-free desktop mouse control"
     )
     parser.add_argument("--camera", type=int, default=0, help="webcam index (default: 0)")
     parser.add_argument("--width", type=int, default=1280, help="capture width")
     parser.add_argument("--height", type=int, default=720, help="capture height")
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL_PATH, help="MediaPipe .task model")
     parser.add_argument("--no-mirror", action="store_true", help="disable selfie mirroring")
+    parser.add_argument(
+        "--no-desktop-control",
+        action="store_true",
+        help="run visual tracking only; do not initialize the OS mouse controller",
+    )
     return parser
 
 
@@ -45,14 +51,28 @@ def run() -> int:
         )
         return 2
 
+    desktop = None
+    emergency_listener = None
+    if not args.no_desktop_control:
+        try:
+            desktop = DesktopControlEngine(PynputMouseBackend())
+            emergency_listener = EmergencyStopListener(desktop)
+            if emergency_listener.start():
+                print("[VisionPilot] Global F12 emergency stop is active.")
+            else:
+                print("[VisionPilot] WARNING: global F12 listener unavailable; use E to disarm and Q to quit.")
+        except Exception as exc:
+            print(f"[VisionPilot] Desktop control unavailable: {exc}", file=sys.stderr)
+            print("[VisionPilot] Continuing in visual-preview-only mode.")
+
     fps = FPSCounter()
     tracker = HandTracker()
     gesture_classifier = GestureClassifier()
     frame_count = 0
-    print("[VisionPilot] Starting Phase 3 gesture recognition...")
-    print("[VisionPilot] Q/ESC: quit | M: toggle mirror")
-    print("[VisionPilot] Recognized: PINCH, OPEN_PALM, TWO_FINGER, FIST, INDEX_POINT")
-    print("[VisionPilot] Mouse and keyboard actions remain DISABLED.")
+    print("[VisionPilot] Starting Phase 4 desktop-control preview...")
+    print("[VisionPilot] Press E in the preview to arm/disarm; F12 is the global emergency stop.")
+    print("[VisionPilot] Control starts DISARMED. INDEX POINT moves; pinch clicks/drags; two fingers scroll.")
+    print("[VisionPilot] Q/ESC quits. OPEN PALM pauses. Tracking loss auto-disarms.")
 
     try:
         with CameraStream(
@@ -72,6 +92,8 @@ def run() -> int:
                 current_fps = fps.tick()
                 tracking = tracker.update(observation, timestamp=frame_time)
                 gesture = gesture_classifier.update(observation, timestamp=frame_time)
+
+                control_status = "PREVIEW ONLY" if desktop is None else desktop.update(tracking, gesture)
 
                 if observation is not None:
                     draw_hand_observation(frame, observation)
@@ -106,25 +128,29 @@ def run() -> int:
                 gesture_status = f"GESTURE: {gesture_label} | EVENT: {gesture.event.value}"
                 gesture_color = (80, 220, 120) if gesture.action_ready else (180, 180, 180)
 
-                cv2.rectangle(frame, (0, 0), (frame.shape[1], 96), (25, 25, 25), -1)
-                cv2.putText(frame, "VISIONPILOT  |  PHASE 3", (18, 25), cv2.FONT_HERSHEY_SIMPLEX,
+                height = 126
+                cv2.rectangle(frame, (0, 0), (frame.shape[1], height), (25, 25, 25), -1)
+                cv2.putText(frame, "VISIONPILOT  |  PHASE 4", (18, 24), cv2.FONT_HERSHEY_SIMPLEX,
                             0.68, (245, 245, 245), 2, cv2.LINE_AA)
-                cv2.putText(frame, tracking_status, (18, 54), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.52, tracking_color, 1, cv2.LINE_AA)
-                cv2.putText(frame, gesture_status, (18, 82), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.48, gesture_color, 1, cv2.LINE_AA)
-                cv2.putText(frame, f"{current_fps:.1f} FPS", (frame.shape[1] - 150, 27),
+                cv2.putText(frame, tracking_status, (18, 52), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.50, tracking_color, 1, cv2.LINE_AA)
+                cv2.putText(frame, gesture_status, (18, 78), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.46, gesture_color, 1, cv2.LINE_AA)
+                control_color = (70, 220, 120) if desktop is not None and desktop.enabled else (50, 170, 255)
+                cv2.putText(frame, f"DESKTOP: {control_status}", (18, 105), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.49, control_color, 1, cv2.LINE_AA)
+                cv2.putText(frame, f"{current_fps:.1f} FPS", (frame.shape[1] - 150, 26),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.65, (245, 245, 245), 2, cv2.LINE_AA)
-                cv2.putText(frame, f"MOTION: {tracking.direction.value} | SPEED: {tracking.speed:.2f} norm/s",
-                            (18, frame.shape[0] - 18), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.55, (235, 235, 235), 1, cv2.LINE_AA)
-                cv2.putText(frame, "Q / ESC: quit   M: mirror", (frame.shape[1] - 265, 58),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.42, (190, 190, 190), 1, cv2.LINE_AA)
+                cv2.putText(frame, "E: arm/disarm | F12: emergency stop | Q: quit",
+                            (frame.shape[1] - 390, 55), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.40, (190, 190, 190), 1, cv2.LINE_AA)
 
-                cv2.imshow("VisionPilot — Visual Perception", frame)
+                cv2.imshow("VisionPilot — Desktop Control", frame)
                 key = cv2.waitKey(1) & 0xFF
                 if key in (ord("q"), 27):
                     break
+                if key == ord("e") and desktop is not None:
+                    desktop.toggle_enabled()
                 if key == ord("m"):
                     config = VisionPilotConfig(
                         camera_index=config.camera_index,
@@ -139,6 +165,10 @@ def run() -> int:
         print(f"[VisionPilot] ERROR: {exc}", file=sys.stderr)
         return 1
     finally:
+        if emergency_listener is not None:
+            emergency_listener.close()
+        if desktop is not None:
+            desktop.close()
         cv2.destroyAllWindows()
 
     print(f"[VisionPilot] Closed cleanly after {frame_count} frames.")

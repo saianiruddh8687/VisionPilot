@@ -4,14 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "visionpilot"
-version = "0.3.0"
-description = "Local webcam hand perception, tracking, and gesture recognition"
+version = "0.4.0"
+description = "Local webcam hand perception, tracking, gesture recognition, and desktop control"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
   "mediapipe==0.10.21",
   "opencv-python>=4.10,<5",
   "numpy>=1.26,<2",
+  "pynput>=1.7.7,<2",
 ]
 
 [tool.setuptools.packages.find]
