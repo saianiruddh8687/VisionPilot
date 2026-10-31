@@ -1,121 +1,71 @@
-# VisionPilot — Phase 1: Visual Perception Engine
+# VisionPilot — Phase 2: Hand Tracking Engine
 
-A Windows-first, local webcam prototype that detects **one hand** and draws its 21 landmarks in a live preview. Phase 1 is deliberately read-only: it does **not** control the mouse, type, click, record video, or upload camera frames.
+VisionPilot is a Windows-first local webcam prototype. Phase 1 detects one hand and draws its 21 landmarks. Phase 2 tracks the index fingertip (landmark 8), smooths its position, estimates motion, and handles temporary tracking loss.
 
-## Phase 1 scope
+## What is included
 
-- Open the built-in webcam (default camera index `0`).
-- Process frames locally using OpenCV and MediaPipe Hand Landmarker.
-- Track one hand using MediaPipe VIDEO mode.
-- Draw the 21 landmarks and hand connections.
-- Display handedness and a smoothed FPS estimate.
-- Release camera/model resources when the preview closes.
-- Run unit tests without a webcam or downloaded model.
+- Local webcam capture and MediaPipe Hand Landmarker in VIDEO mode.
+- Single-hand detection with a 21-landmark overlay.
+- Normalized index-fingertip coordinates (X/Y from 0.0 to 1.0).
+- Adaptive One Euro filtering to reduce jitter without excessive movement lag.
+- Velocity, speed, and 8-way movement direction.
+- SEARCHING, TRACKING, OCCLUDED, and LOST states.
+- Immediate suppression of live coordinates on missed frames.
+- A 350 ms reacquisition grace period; after prolonged loss, filters reset.
+- Unit tests that run without a webcam or downloaded model.
+
+No mouse/keyboard automation, video recording, or camera-frame upload is implemented in Phase 2.
 
 ## Requirements
 
-- Windows 10/11, 64-bit.
-- Python 3.11 (64-bit) recommended; Python 3.11–3.12 are supported by the project metadata.
-- A webcam and permission for desktop applications to access it.
-- Internet access once, to install packages and download the official model bundle.
+Windows 10/11 (64-bit), Python 3.11 (64-bit recommended), a webcam, and camera permission.
 
 ## Setup (PowerShell)
 
-Open PowerShell in this folder:
+    py -3.11 -m venv .venv
+    .\.venv\Scripts\Activate.ps1
+    python -m pip install --upgrade pip
+    python -m pip install -r requirements.txt
+    python scripts/download_model.py
 
-```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python scripts/download_model.py
-```
+If PowerShell blocks activation, use the venv interpreter directly:
 
-If PowerShell blocks activation, you can skip activation and use the venv's Python directly:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe scripts/download_model.py
-```
+    .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+    .\.venv\Scripts\python.exe scripts/download_model.py
 
 ## Run
 
-```powershell
-python -m visionpilot.app
-```
+    python -m visionpilot.app
 
-Or double-click `run_visionpilot.bat` after setup.
+Or double-click run_visionpilot.bat. Press Q or Esc to quit and M to toggle selfie mirroring. Use --camera 1 to try a different camera index, or --no-mirror to disable mirroring.
 
-Keyboard controls:
+## Tests
 
-- `Q` or `Esc`: quit.
-- `M`: toggle selfie mirroring.
+    python -m unittest discover -s tests -v
 
-Optional camera and size selection:
+The tests cover the original camera-independent Phase 1 logic plus smoothing, coordinate extraction, motion estimation, timestamp validation, dropouts, and reacquisition. A real webcam/model test still needs to be performed on the target Windows machine.
 
-```powershell
-python -m visionpilot.app --camera 1 --width 1280 --height 720
-```
+## Tracking result contract
 
-Use `--no-mirror` to disable the default mirrored preview.
+TrackingUpdate provides the current phase, live index_tip, raw_index_tip, diagnostic last_known_position, velocity, speed, direction, handedness, loss duration, and frames since the last detection. Coordinates are normalized to the camera image. Velocity is expressed in normalized camera units per second.
 
-## Tests (no webcam required)
+The key safety rule is that index_tip is None whenever the current frame has no hand detection. last_known_position is diagnostic only; action_ready remains false during occlusion and loss.
 
-```powershell
-python -m unittest discover -s tests -v
-```
+## Run-time architecture
 
-The automated tests cover landmark extraction, missing-hand handling, mirrored handedness correction, invalid landmark counts, configuration validation, and FPS calculation. They do not prove that the physical webcam or model works on a particular PC; that requires the live run above.
+    Webcam -> OpenCV -> MediaPipe HandLandmarker
+           -> HandObservation (21 landmarks)
+           -> HandTracker -> One Euro coordinate filters
+           -> TrackingUpdate (position / velocity / direction / loss state)
+           -> OpenCV preview overlay
 
-## Troubleshooting
-
-**Camera cannot be opened**
-
-1. Close Teams, Zoom, browser camera tabs, and other apps that may hold the camera.
-2. Open Windows Settings → Privacy & security → Camera, enable camera access, and allow desktop apps to access it.
-3. Try `python -m visionpilot.app --camera 1` if another camera index is in use.
-4. Reconnect an external USB webcam, if applicable.
-
-**Model file missing**
-
-Run `python scripts/download_model.py` from the project root. The model is stored in `models/hand_landmarker.task`.
-
-**Import or installation errors**
-
-Use 64-bit Python 3.11 and recreate the virtual environment. Do not install packages into a system-managed Python installation if it is managed by another application.
-
-## Architecture
-
-```text
-Built-in webcam
-      │
-      ▼
-OpenCV CameraStream
-      │  BGR frames
-      ▼
-Optional selfie mirror
-      │
-      ▼
-MediaPipe HandLandmarker (VIDEO mode, max_hands=1)
-      │
-      ▼
-HandObservation (21 normalized landmarks + handedness)
-      │
-      ▼
-OpenCV skeleton overlay + FPS/status preview
-```
-
-## Privacy and safety
-
-Camera frames are processed locally and are not saved by this project. The model bundle is downloaded once during setup. Camera use begins only when the user launches the program and stops when the preview exits. No mouse or keyboard automation is present in Phase 1.
+Camera frames are processed locally and are not saved by VisionPilot. The model file is downloaded once during setup and is excluded from Git.
 
 ## Next phase
 
-Phase 2 will add a tracking layer that stabilizes the index-fingertip position, filters jitter, handles temporary hand loss, and exposes normalized coordinates to later cursor-control modules. Mouse actions remain disabled until those tracking tests pass.
+Phase 3 will add gesture classification (pinch, open palm, fist, and scrolling) with debouncing and explicit state transitions. Desktop control stays disabled until gesture behavior is validated.
 
 ## References
 
-- [MediaPipe Hand Landmarker for Python](https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker/python)
-- [MediaPipe Hand Landmarker model overview](https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker)
-- [OpenCV VideoCapture documentation](https://docs.opencv.org/4.x/d8/dfe/classcv_1_1VideoCapture.html)
+- MediaPipe Hand Landmarker: https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker/python
+- OpenCV VideoCapture: https://docs.opencv.org/4.x/d8/dfe/classcv_1_1VideoCapture.html
