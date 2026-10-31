@@ -30,6 +30,10 @@ class CalibrationProfile:
     screen_width: int
     screen_height: int
     point_count: int = 5
+    camera_index: int = 0
+    camera_width: int = 1280
+    camera_height: int = 720
+    mirror_preview: bool = True
     version: int = 1
 
     def __post_init__(self) -> None:
@@ -41,10 +45,12 @@ class CalibrationProfile:
             raise CalibrationError("screen dimensions must be at least 2 pixels")
         if self.point_count < 4:
             raise CalibrationError("at least four calibration points are required")
-        if abs(self.matrix[8]) < 1e-10:
-            raise CalibrationError("invalid homography normalization")
+        if self.camera_index < 0 or self.camera_width < 2 or self.camera_height < 2:
+            raise CalibrationError("invalid camera metadata in calibration profile")
         if self.version != 1:
             raise CalibrationError(f"unsupported calibration profile version: {self.version}")
+        if abs(self.matrix[8]) < 1e-10:
+            raise CalibrationError("invalid homography normalization")
 
     def transform(self, point: Point2D) -> Point2D:
         """Transform normalized camera coordinates into normalized screen coordinates."""
@@ -68,6 +74,10 @@ class CalibrationProfile:
             "screen_width": self.screen_width,
             "screen_height": self.screen_height,
             "point_count": self.point_count,
+            "camera_index": self.camera_index,
+            "camera_width": self.camera_width,
+            "camera_height": self.camera_height,
+            "mirror_preview": self.mirror_preview,
         }
 
     @classmethod
@@ -79,6 +89,10 @@ class CalibrationProfile:
                 screen_width=int(payload["screen_width"]),
                 screen_height=int(payload["screen_height"]),
                 point_count=int(payload.get("point_count", 5)),
+                camera_index=int(payload.get("camera_index", 0)),
+                camera_width=int(payload.get("camera_width", 1280)),
+                camera_height=int(payload.get("camera_height", 720)),
+                mirror_preview=bool(payload.get("mirror_preview", True)),
                 version=int(payload.get("version", 1)),
             )
         except (KeyError, TypeError, ValueError) as exc:
@@ -100,6 +114,10 @@ def fit_calibration(
     screen_height: int,
     *,
     max_rms_error: float = 0.08,
+    camera_index: int = 0,
+    camera_width: int = 1280,
+    camera_height: int = 720,
+    mirror_preview: bool = True,
 ) -> CalibrationProfile:
     """Fit a camera-to-screen homography from four or more paired points."""
     import numpy as np
@@ -137,6 +155,10 @@ def fit_calibration(
         screen_width=screen_width,
         screen_height=screen_height,
         point_count=len(points),
+        camera_index=camera_index,
+        camera_width=camera_width,
+        camera_height=camera_height,
+        mirror_preview=mirror_preview,
     )
     errors = []
     for pair in points:
@@ -153,6 +175,10 @@ def fit_calibration(
         screen_width=screen_width,
         screen_height=screen_height,
         point_count=len(points),
+        camera_index=camera_index,
+        camera_width=camera_width,
+        camera_height=camera_height,
+        mirror_preview=mirror_preview,
     )
 
 
@@ -167,6 +193,10 @@ class CalibrationSession:
         min_samples: int = 20,
         max_samples: int = 20,
         max_stddev: float = 0.012,
+        camera_index: int = 0,
+        camera_width: int = 1280,
+        camera_height: int = 720,
+        mirror_preview: bool = True,
     ) -> None:
         if screen_width < 2 or screen_height < 2:
             raise ValueError("screen dimensions must be at least 2 pixels")
@@ -174,11 +204,17 @@ class CalibrationSession:
             raise ValueError("sample limits must satisfy 5 <= min_samples <= max_samples")
         if not math.isfinite(max_stddev) or max_stddev <= 0:
             raise ValueError("max_stddev must be positive and finite")
+        if camera_index < 0 or camera_width < 2 or camera_height < 2:
+            raise ValueError("invalid camera metadata for calibration session")
         self.screen_width = screen_width
         self.screen_height = screen_height
         self.min_samples = min_samples
         self.max_samples = max_samples
         self.max_stddev = max_stddev
+        self.camera_index = camera_index
+        self.camera_width = camera_width
+        self.camera_height = camera_height
+        self.mirror_preview = mirror_preview
         self._samples: deque[Point2D] = deque(maxlen=max_samples)
         self._pairs: list[CalibrationPair] = []
         self._profile: CalibrationProfile | None = None
@@ -237,10 +273,7 @@ class CalibrationSession:
     def observe(self, point: Point2D | None) -> None:
         if self.complete or self._cancelled:
             return
-        if point is None:
-            self._samples.clear()
-            return
-        if not math.isfinite(point.x) or not math.isfinite(point.y):
+        if point is None or not math.isfinite(point.x) or not math.isfinite(point.y):
             self._samples.clear()
             return
         self._samples.append(Point2D(
@@ -264,7 +297,13 @@ class CalibrationSession:
         if self.progress == self.total_targets:
             try:
                 self._profile = fit_calibration(
-                    self._pairs, self.screen_width, self.screen_height
+                    self._pairs,
+                    self.screen_width,
+                    self.screen_height,
+                    camera_index=self.camera_index,
+                    camera_width=self.camera_width,
+                    camera_height=self.camera_height,
+                    mirror_preview=self.mirror_preview,
                 )
             except CalibrationError as exc:
                 self._pairs.clear()
