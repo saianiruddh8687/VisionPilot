@@ -90,6 +90,17 @@ def run() -> int:
             try:
                 active_profile = load_profile(args.calibration_file)
                 if active_profile is not None:
+                    expected_camera = (args.camera, args.width, args.height, config.mirror_preview)
+                    saved_camera = (
+                        active_profile.camera_index,
+                        active_profile.camera_width,
+                        active_profile.camera_height,
+                        active_profile.mirror_preview,
+                    )
+                    if saved_camera != expected_camera:
+                        raise CalibrationError(
+                            "profile camera index, capture resolution, or mirror setting differs; recalibrate"
+                        )
                     desktop.mapper = CalibratedScreenMapper(
                         *backend.screen_size,
                         active_profile,
@@ -224,7 +235,9 @@ def run() -> int:
                 if key in (ord("q"), 27):
                     break
                 if key == ord("m"):
-                    if calibration_session is None:
+                    if calibration_session is not None or (desktop is not None and desktop.enabled):
+                        calibration_status = "MIRROR CHANGE BLOCKED — disarm and finish calibration first"
+                    else:
                         config = VisionPilotConfig(
                             camera_index=config.camera_index,
                             frame_width=config.frame_width,
@@ -234,10 +247,17 @@ def run() -> int:
                             hand_presence_confidence=config.hand_presence_confidence,
                             tracking_confidence=config.tracking_confidence,
                         )
-                    else:
-                        calibration_status = "MIRROR CHANGE BLOCKED — finish or cancel calibration first"
+                        if active_profile is not None and active_profile.mirror_preview != config.mirror_preview:
+                            active_profile = None
+                            calibration_status = "MIRROR CHANGED — recalibration required before arming"
                 if key == ord("c") and desktop is not None and not desktop.enabled:
-                    calibration_session = CalibrationSession(*backend.screen_size)
+                    calibration_session = CalibrationSession(
+                        *backend.screen_size,
+                        camera_index=config.camera_index,
+                        camera_width=config.frame_width,
+                        camera_height=config.frame_height,
+                        mirror_preview=config.mirror_preview,
+                    )
                     calibration_status = "CALIBRATION STARTED — hold index point at each target"
                 elif key == ord("x") and calibration_session is not None:
                     calibration_session.cancel()
