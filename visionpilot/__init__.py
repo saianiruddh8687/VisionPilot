@@ -1,3 +1,3 @@
-"""VisionPilot: local hand tracking, gesture recognition, and desktop control."""
+"""VisionPilot: local hand tracking, gesture recognition, and calibrated desktop control."""
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
