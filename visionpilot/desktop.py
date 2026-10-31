@@ -121,14 +121,8 @@ class ScreenMapper:
 class DesktopControlEngine:
     """Translate validated hand-tracking/gesture states into OS mouse actions.
 
-    Controls:
-    - INDEX_POINT: move cursor
-    - quick PINCH release: left click
-    - sustained PINCH: left-button drag
-    - TWO_FINGER: vertical scroll
-    - OPEN_PALM: pause
-    - tracking loss: release any held button and automatically disarm
-    - F12: emergency stop (wired by EmergencyStopListener)
+    Controls: INDEX_POINT moves; quick PINCH release clicks; sustained PINCH
+    drags; TWO_FINGER scrolls; OPEN_PALM pauses. Tracking loss disarms.
     """
 
     def __init__(
@@ -211,11 +205,7 @@ class DesktopControlEngine:
             self.backend.scroll(0, ticks)
             self._scroll_remainder -= ticks
 
-    def update(
-        self,
-        tracking: TrackingUpdate,
-        gesture: GestureUpdate,
-    ) -> str:
+    def update(self, tracking: TrackingUpdate, gesture: GestureUpdate) -> str:
         """Apply one frame of input. Fail closed on tracking loss or I/O error."""
         with self._lock:
             if not self._enabled:
@@ -238,8 +228,15 @@ class DesktopControlEngine:
                         return self._status
                     self._paused = False
 
-                # A pinch has ended only after the classifier's debounce event.
-                # Never synthesize a click on hand loss; that path disarms above.
+                active = gesture.gesture
+                # Move to the release-frame coordinate before a click/drop so
+                # the final pinch position is used, not the previous frame.
+                if gesture.action_ready and active in (Gesture.INDEX_POINT, Gesture.PINCH):
+                    if tracking.index_tip is not None:
+                        self._move_cursor(tracking.index_tip)
+
+                # Release/click only on the debounced pinch-end event. Hand loss
+                # follows the fail-safe disarm path above and never synthesizes a click.
                 if (
                     gesture.previous_gesture is Gesture.PINCH
                     and gesture.event in (GestureEvent.CHANGED, GestureEvent.ENDED)
@@ -249,11 +246,6 @@ class DesktopControlEngine:
                         self._release_left()
                     elif held_for < self.config.drag_start_seconds:
                         self.backend.click_left()
-
-                active = gesture.gesture
-                if gesture.action_ready and active in (Gesture.INDEX_POINT, Gesture.PINCH):
-                    if tracking.index_tip is not None:
-                        self._move_cursor(tracking.index_tip)
 
                 if gesture.action_ready and active is Gesture.PINCH:
                     if (
