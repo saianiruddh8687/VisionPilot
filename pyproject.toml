@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "visionpilot"
-version = "0.2.0"
-description = "Local webcam hand perception and fingertip motion tracking engine"
+version = "0.3.0"
+description = "Local webcam hand perception, tracking, and gesture recognition"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
