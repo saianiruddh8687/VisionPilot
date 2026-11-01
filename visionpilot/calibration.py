@@ -355,7 +355,7 @@ class CalibratedScreenMapper:
         width: int,
         height: int,
         profile: CalibrationProfile,
-        edge_margin: float = 0.025,
+        edge_margin: float = 0.005,
     ) -> None:
         if (width, height) != (profile.screen_width, profile.screen_height):
             raise CalibrationError(
@@ -370,8 +370,15 @@ class CalibratedScreenMapper:
 
     def map(self, point: Point2D) -> tuple[int, int]:
         normalized = self.profile.transform(point)
-        x = min(1.0 - self.edge_margin, max(self.edge_margin, normalized.x))
-        y = min(1.0 - self.edge_margin, max(self.edge_margin, normalized.y))
+
+        # Calibration targets cover the 5%-95% screen area. Expand that
+        # normalized range so the captured targets map near the screen edges.
+        x = (normalized.x - 0.05) / 0.90
+        y = (normalized.y - 0.05) / 0.90
+
+        # Keep a small configurable safety inset and clamp out-of-range values.
+        x = min(1.0 - self.edge_margin, max(self.edge_margin, x))
+        y = min(1.0 - self.edge_margin, max(self.edge_margin, y))
         return (
             int(round(x * (self.width - 1) + 1e-8)),
             int(round(y * (self.height - 1) + 1e-8)),
