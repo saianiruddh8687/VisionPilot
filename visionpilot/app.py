@@ -47,8 +47,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="per-user calibration profile path",
     )
     parser.add_argument("--drag-threshold", type=float, default=0.45, help="pinch hold time before drag, seconds")
-    parser.add_argument("--scroll-gain", type=float, default=35.0, help="two-finger scroll sensitivity")
-    parser.add_argument("--edge-margin", type=float, default=0.025, help="safe screen edge margin, 0..0.25")
+    parser.add_argument("--scroll-gain", type=float, default=70.0, help="two-finger scroll sensitivity")
+    parser.add_argument("--edge-margin", type=float, default=0.005, help="safe screen edge margin, 0..0.25")
     return parser
 
 
