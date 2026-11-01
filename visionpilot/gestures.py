@@ -27,8 +27,9 @@ class GestureEvent(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class GestureConfig:
-    pinch_enter_ratio: float = 0.30
-    pinch_release_ratio: float = 0.44
+    pinch_enter_ratio: float = 0.45
+    pinch_release_ratio: float = 0.55
+    pinch_min_index_angle: float = 90.0
     finger_extension_angle: float = 155.0
     thumb_extension_angle: float = 145.0
     thumb_abduction_ratio: float = 0.45
@@ -40,6 +41,7 @@ class GestureConfig:
     def __post_init__(self) -> None:
         values = (
             self.pinch_enter_ratio, self.pinch_release_ratio,
+            self.pinch_min_index_angle,
             self.finger_extension_angle, self.thumb_extension_angle,
             self.thumb_abduction_ratio, self.min_stable_seconds,
             self.scroll_deadzone, self.max_scroll_delta,
@@ -52,6 +54,8 @@ class GestureConfig:
             raise ValueError("finger_extension_angle must be in (0, 180]")
         if not 0 < self.thumb_extension_angle <= 180:
             raise ValueError("thumb_extension_angle must be in (0, 180]")
+        if not 0 < self.pinch_min_index_angle <= 180:
+            raise ValueError("pinch_min_index_angle must be in (0, 180]")
         if self.thumb_abduction_ratio < 0 or self.stable_frames < 1:
             raise ValueError("thumb_abduction_ratio must be >= 0 and stable_frames >= 1")
         if self.min_stable_seconds < 0 or self.scroll_deadzone < 0 or self.max_scroll_delta <= 0:
@@ -146,7 +150,7 @@ class GestureClassifier:
         )
         # A pinch can bend the index finger, but a tightly curled index plus
         # all other folded fingers is more consistent with a closed fist.
-        if pinch_ratio <= pinch_limit and index_angle >= 105.0:
+        if pinch_ratio <= pinch_limit and index_angle >= self.config.pinch_min_index_angle:
             return Gesture.PINCH, pinch_ratio
         if not any(extended.values()) and not thumb_extended:
             return Gesture.FIST, 1.0

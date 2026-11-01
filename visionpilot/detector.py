@@ -24,7 +24,9 @@ class HandLandmarkDetector:
         self._mp = mp
         self._config = config
         options = mp.tasks.vision.HandLandmarkerOptions(
-            base_options=mp.tasks.BaseOptions(model_asset_path=str(model_path)),
+            base_options=mp.tasks.BaseOptions(
+                model_asset_buffer=model_path.read_bytes()
+            ),
             running_mode=mp.tasks.vision.RunningMode.VIDEO,
             num_hands=config.max_hands,
             min_hand_detection_confidence=config.detection_confidence,

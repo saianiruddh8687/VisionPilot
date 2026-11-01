@@ -71,6 +71,16 @@ class GestureClassifierTests(unittest.TestCase):
         result = self.stable(GestureClassifier(), hand_pose("pinch"))
         self.assertEqual(result.gesture, Gesture.PINCH)
 
+    def test_pinch_thresholds_allow_bent_index_without_confusing_fist(self):
+        config = GestureConfig(
+            pinch_enter_ratio=0.45,
+            pinch_release_ratio=0.55,
+            pinch_min_index_angle=90.0,
+        )
+        result = self.stable(GestureClassifier(config), hand_pose("pinch"))
+        self.assertEqual(result.gesture, Gesture.PINCH)
+        self.assertEqual(GestureClassifier().config.pinch_enter_ratio, 0.45)
+
     def test_pinch_with_partially_bent_index_finger(self):
         observation = hand_pose("pinch")
         points = list(observation.landmarks)

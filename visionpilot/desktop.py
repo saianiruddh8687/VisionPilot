@@ -78,8 +78,8 @@ class PynputMouseBackend:
 @dataclass(frozen=True, slots=True)
 class DesktopControlConfig:
     drag_start_seconds: float = 0.45
-    scroll_gain: float = 35.0
-    edge_margin: float = 0.025
+    scroll_gain: float = 70.0
+    edge_margin: float = 0.005
 
     def __post_init__(self) -> None:
         values = (self.drag_start_seconds, self.scroll_gain, self.edge_margin)
@@ -94,7 +94,7 @@ class DesktopControlConfig:
 class ScreenMapper:
     """Map normalized camera coordinates onto a safe inset of the primary screen."""
 
-    def __init__(self, width: int, height: int, edge_margin: float = 0.025) -> None:
+    def __init__(self, width: int, height: int, edge_margin: float = 0.005) -> None:
         if width < 2 or height < 2:
             raise ValueError("screen dimensions must both be at least 2 pixels")
         if not math.isfinite(edge_margin) or not 0 <= edge_margin < 0.25:

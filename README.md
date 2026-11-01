@@ -16,27 +16,37 @@ All camera capture, MediaPipe inference, calibration, and mouse actions execute 
 
 ## Setup (Windows PowerShell)
 
-Use Python 3.11 x64:
+Use **64-bit Python 3.12**. From the repository root, run the automated setup:
 
-    py -3.11 -m venv .venv
-    .\.venv\Scripts\Activate.ps1
-    python -m pip install --upgrade pip
-    python -m pip install -r requirements.txt
-    python scripts/download_model.py
+    .\scripts\setup_windows.ps1
+
+If PowerShell blocks local scripts, run it in a temporary bypassed process:
+
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup_windows.ps1
+
+The setup script creates `.venv`, upgrades pip, installs `requirements.txt`, downloads the MediaPipe Hand Landmarker model if it is missing, compiles the Python modules, runs the unit tests, and verifies the OpenCV, MediaPipe, PySide6, and dashboard imports. It does not open the webcam or move the mouse.
 
 Launch the dashboard:
 
-    python -m visionpilot
+    .\.venv\Scripts\python.exe -m visionpilot --camera 0
 
-You can also run the bundled launcher:
+To activate the environment for manual development:
+
+    .\.venv\Scripts\Activate.ps1
+
+You can also run the bundled launcher after setup:
 
     .\run_visionpilot.bat
 
 The dashboard accepts optional startup arguments:
 
-    python -m visionpilot --camera 1
-    python -m visionpilot --model .\models\hand_landmarker.task
-    python -m visionpilot --calibration-file .\my-calibration.json
+    .\.venv\Scripts\python.exe -m visionpilot --camera 1
+    .\.venv\Scripts\python.exe -m visionpilot --model .\models\hand_landmarker.task
+    .\.venv\Scripts\python.exe -m visionpilot --calibration-file .\my-calibration.json
+
+### Moving to another Windows laptop
+
+Clone or pull the repository, install 64-bit Python 3.12, and run `scripts\\setup_windows.ps1`. The virtual environment and MediaPipe model are machine-local generated files and are not committed. Re-run the five-point calibration on each laptop or whenever the primary display resolution, camera index, capture resolution, or mirror setting changes. Calibration profiles are stored under the current Windows user's `%APPDATA%\\VisionPilot\\calibration.json`.
 
 ## Calibration and control
 
