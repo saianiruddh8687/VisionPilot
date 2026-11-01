@@ -55,8 +55,8 @@ class DashboardWorker(QThread):
         mirror_preview: bool = True,
         calibration_file: Path | None = None,
         drag_threshold: float = 0.45,
-        scroll_gain: float = 35.0,
-        edge_margin: float = 0.025,
+        scroll_gain: float = 70.0,
+        edge_margin: float = 0.005,
     ) -> None:
         super().__init__()
         self.model_path = Path(model_path)
