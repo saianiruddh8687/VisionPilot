@@ -145,6 +145,17 @@ class CalibratedMapperTests(unittest.TestCase):
         self.assertGreater(y, 0)
         self.assertLess(y, 1079)
 
+    def test_calibration_targets_expand_to_safe_screen_area(self):
+        pairs = [CalibrationPair(camera=t, screen=t) for _, t in CALIBRATION_TARGETS]
+        profile = fit_calibration(pairs, 1920, 1080)
+        mapper = CalibratedScreenMapper(1920, 1080, profile, edge_margin=0.005)
+
+        top_left = mapper.map(Point2D(0.05, 0.05))
+        bottom_right = mapper.map(Point2D(0.95, 0.95))
+
+        self.assertEqual(top_left, (round(0.005 * 1919), round(0.005 * 1079)))
+        self.assertEqual(bottom_right, (round(0.995 * 1919), round(0.995 * 1079)))
+
     def test_rejects_changed_screen_resolution(self):
         profile = fit_calibration(
             [CalibrationPair(camera=t, screen=t) for _, t in CALIBRATION_TARGETS],
